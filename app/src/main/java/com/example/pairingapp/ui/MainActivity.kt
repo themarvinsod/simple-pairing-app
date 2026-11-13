@@ -365,11 +365,12 @@ class MainActivity : AppCompatActivity() {
                     t.advance()
                     store.saveNow()
                     viewRound = t.currentRound
+                    // render(false) rebuilds the page without restoring scroll, so the new round starts at the top.
                     if (t.status == Status.FINISHED) {
                         tab = 1
-                        rerender()
+                        render(false)
                         push { decksScreen(t) }
-                    } else { tab = 0; rerender() }
+                    } else { tab = 0; render(false) }
                 }
                 b.maxLines = 2
                 b.isEnabled = ok
