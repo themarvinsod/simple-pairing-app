@@ -296,6 +296,16 @@ class Tournament(
         }
     }
 
+    /** Standings as they stood when a stage ended, e.g. "Stage 1: Swiss · 5 rounds". */
+    class StageResult(val stage: Int, val label: String, val standings: List<Standing>)
+
+    /** One result per stage that has been played, each frozen at that stage's last round. */
+    fun stageResults(): List<StageResult> = stages.indices.mapNotNull { si ->
+        val rounds = matches.filter { it.stage == si }
+        if (rounds.isEmpty()) null
+        else StageResult(si, "Stage ${si + 1}: ${stages[si].describe()}", standings(rounds.maxOf { it.round }))
+    }
+
     fun standingsText(): String = buildString {
         append(name).append('\n')
         for (s in standings()) {

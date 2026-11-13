@@ -3,6 +3,10 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Saving result images to Pictures: only needed on Android 9 and below. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Round-timer alarm: granted automatically on Android 13+; install-time on 12/12L. -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />

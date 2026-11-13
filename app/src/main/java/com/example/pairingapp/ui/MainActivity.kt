@@ -1,6 +1,11 @@
 package com.example.pairingapp.ui
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -58,6 +63,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var store: Store
+    private companion object {
+        const val REQ_STORAGE = 77
+        const val PAGE_ROWS = 50 // players per result image
+    }
+
+    private var downloading = false
+    private var pendingDownload: (() -> Unit)? = null // runs once storage permission is granted (API 28-)
     private lateinit var timer: RoundTimer
     private var timerUi: (() -> Unit)? = null // refreshes the visible timer card, if any
     private lateinit var root: FrameLayout
@@ -394,6 +406,7 @@ class MainActivity : AppCompatActivity() {
                 row.add(button("Deck names") { push { decksScreen(t) } }, 1f, end = 8)
                 row.add(button("Share results", true) { share(t) }, 1f)
                 box.add(row)
+                box.add(button("Download tournament result", true) { downloadResult(t) }, top = 8)
             }
             viewRound != t.currentRound -> box.add(button("Go to current round") { viewRound = t.currentRound; rerender() })
             else -> {
@@ -418,6 +431,82 @@ class MainActivity : AppCompatActivity() {
             }
         }
         return box
+    }
+
+    /** One stage: save straight away. Several stages: let the user tick which results to save. */
+    private fun downloadResult(t: Tournament) {
+        val results = t.stageResults()
+        when {
+            results.isEmpty() -> toast("Nothing to download yet")
+            results.size == 1 -> saveResults(t, results)
+            else -> {
+                val checked = BooleanArray(results.size) { it == results.size - 1 } // final result pre-ticked
+                AlertDialog.Builder(this)
+                    .setTitle("Download which results?")
+                    .setMultiChoiceItems(results.map { it.label }.toTypedArray(), checked) { _, i, on -> checked[i] = on }
+                    .setPositiveButton("Download") { _, _ ->
+                        val picks = results.filterIndexed { i, _ -> checked[i] }
+                        if (picks.isEmpty()) toast("Select at least one result") else saveResults(t, picks)
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        }
+    }
+
+    private fun saveResults(t: Tournament, picks: List<Tournament.StageResult>) {
+        if (Build.VERSION.SDK_INT < 29 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingDownload = { saveResults(t, picks) }
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), REQ_STORAGE)
+            return
+        }
+        if (downloading) return
+        downloading = true
+        toast("Saving...")
+        val multi = t.stages.size > 1
+        val title = t.name
+        val base = title.replace(Regex("[^A-Za-z0-9]+"), "_").trim('_').ifEmpty { "tournament" }
+        val app = applicationContext
+        // The standings are immutable snapshots, so drawing and PNG-encoding can run off the UI thread.
+        // Big fields are split into pages so no single bitmap gets huge.
+        Thread {
+            var saved = 0
+            var total = 0
+            for (r in picks) {
+                val pages = r.standings.chunked(PAGE_ROWS)
+                pages.forEachIndexed { i, rows ->
+                    total++
+                    val label = if (pages.size > 1) "page ${i + 1}/${pages.size}" else null
+                    val bmp = runCatching {
+                        ResultImage.render(title, if (multi) r.label else null, rows, r.standings.size, label)
+                    }.getOrNull() // includes OutOfMemoryError
+                    if (bmp != null) {
+                        val file = (if (multi) "${base}_stage${r.stage + 1}" else "${base}_results") +
+                            if (pages.size > 1) "_p${i + 1}" else ""
+                        if (ResultImage.save(app, bmp, file)) saved++
+                        bmp.recycle()
+                    }
+                }
+            }
+            runOnUiThread {
+                downloading = false
+                toast(
+                    if (saved == total) "Saved $saved image${if (saved == 1) "" else "s"} to Pictures/PairingApp"
+                    else "Could not save every image ($saved of $total)"
+                )
+            }
+        }.start()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQ_STORAGE) return
+        val run = pendingDownload
+        pendingDownload = null
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) run?.invoke()
+        else toast("Storage permission is needed to save images")
     }
 
     private fun share(t: Tournament) {
