@@ -79,6 +79,7 @@ class MainActivity : AppCompatActivity() {
     private var draft = Draft()
     private var viewRound = 0
     private var tab = 0 // 0 = pairings, 1 = standings
+    private var reviewing = false // standings preview shown before the next round is paired
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = Store(this)
@@ -188,6 +189,7 @@ class MainActivity : AppCompatActivity() {
     private fun openTournament(t: Tournament) {
         viewRound = t.currentRound
         tab = 0
+        reviewing = false
         push { tournamentScreen(t) }
     }
 
@@ -394,8 +396,35 @@ class MainActivity : AppCompatActivity() {
             tabs.add(button("Pairings", tab != 0) { tab = 0; rerender() }, 1f, end = 8)
             tabs.add(button("Standings", tab != 1) { tab = 1; rerender() }, 1f)
             add(tabs, top = 8)
+            if (reviewing) {
+                val c = card()
+                c.add(text("Review the standings", 15f, true))
+                c.add(text("Use the red bin button in Standings to drop a player (you will be asked to confirm). Dropped players are skipped when the next round is paired.", 13f, muted = true), top = 2)
+                add(c, top = 10)
+            }
             if (tab == 0) pairingsBody(t, editable) else standingsBody(t)
         }
+    }
+
+    /** Show the standings first whenever the next step pairs Swiss players (the only place dropping matters). */
+    private fun needsReview(t: Tournament) =
+        t.status == Status.ACTIVE && t.stages[t.currentStage].type == StageType.SWISS &&
+            !(t.stageDone(t.currentStage) && t.currentStage + 1 >= t.stages.size)
+
+    private fun advanceRound(t: Tournament) {
+        reviewing = false
+        // Pairing is time-capped (2 s) in SwissPairer, so it is safe on the UI thread;
+        // that keeps Tournament single-threaded. Save immediately so a new round is never lost.
+        t.advance()
+        store.saveNow()
+        timer.reset() // every round starts with a fresh clock
+        viewRound = t.currentRound
+        // render(false) rebuilds the page without restoring scroll, so the new round starts at the top.
+        if (t.status == Status.FINISHED) {
+            tab = 1
+            render(false)
+            push { decksScreen(t) }
+        } else { tab = 0; render(false) }
     }
 
     private fun bottomBar(t: Tournament): View {
@@ -411,23 +440,28 @@ class MainActivity : AppCompatActivity() {
             viewRound != t.currentRound -> box.add(button("Go to current round") { viewRound = t.currentRound; rerender() })
             else -> {
                 val ok = t.canAdvance()
-                val b = button(if (ok) t.nextStepLabel() else "${t.pendingCount(t.currentRound)} result(s) still missing") {
-                    // Pairing is time-capped (2 s) in SwissPairer, so it is safe on the UI thread;
-                    // that keeps Tournament single-threaded. Save immediately so a new round is never lost.
-                    t.advance()
-                    store.saveNow()
-                    timer.reset() // every round starts with a fresh clock
-                    viewRound = t.currentRound
-                    // render(false) rebuilds the page without restoring scroll, so the new round starts at the top.
-                    if (t.status == Status.FINISHED) {
+                if (!ok) reviewing = false // a result was cleared again, so the preview no longer applies
+                val review = ok && reviewing
+                val active = t.players.size - t.dropped.size
+                val label = when {
+                    !ok -> "${t.pendingCount(t.currentRound)} result(s) still missing"
+                    review && t.stageDone(t.currentStage) -> "${t.nextStepLabel()} · $active players"
+                    review -> "Pair round ${t.currentRound + 1} · $active players"
+                    else -> t.nextStepLabel()
+                }
+                val b = button(label) {
+                    // First press shows the standings (with drop options); the second one pairs.
+                    if (needsReview(t) && !reviewing) {
+                        reviewing = true
                         tab = 1
+                        viewRound = t.currentRound
                         render(false)
-                        push { decksScreen(t) }
-                    } else { tab = 0; render(false) }
+                    } else advanceRound(t)
                 }
                 b.maxLines = 2
-                b.isEnabled = ok
+                b.isEnabled = ok && !(review && active < 2)
                 box.add(b)
+                if (review && active < 2) box.add(text("Need at least 2 active players to pair.", 12f, muted = true), top = 6)
             }
         }
         return box
@@ -607,7 +641,7 @@ class MainActivity : AppCompatActivity() {
         val rows = t.standings(viewRound)
         val canDrop = t.status == Status.ACTIVE && viewRound == t.currentRound &&
             t.stages[t.currentStage].type == StageType.SWISS
-        add(text("After ${t.roundTitle(viewRound)}" + if (canDrop) " · tap a player to drop / reinstate" else "", 12f, muted = true), top = 10)
+        add(text("After ${t.roundTitle(viewRound)}" + if (canDrop) " · use the bin to drop a player" else "", 12f, muted = true), top = 10)
 
         // Fixed-width rank + weighted columns so everything always fits the screen width.
         val wName = 3.3f; val wPts = 1f; val wPct = 1.2f
@@ -622,14 +656,15 @@ class MainActivity : AppCompatActivity() {
         listOf("PTS" to wPts, "MW%" to wPct, "OMW%" to wPct, "OOMW%" to wPct).forEach { (h, w) ->
             head.add(text(h, 10.5f, true, true).apply { gravity = Gravity.END; maxLines = 1 }, w)
         }
+        if (canDrop) head.addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(46), 1)) // room for the bin column
         add(head, top = 4)
 
         val medal = intArrayOf(0xFFFFC857.toInt(), 0xFFC4CAD8.toInt(), 0xFFD8925B.toInt())
         rows.forEach { s: Standing ->
             val champion = s.note == "Champion"
+            val fade = if (s.dropped) 0.5f else 1f // dropped players are dimmed, but their buttons stay clear
             val r = hbox().apply {
                 setPadding(dp(10), dp(9), dp(10), dp(9))
-                alpha = if (s.dropped) 0.5f else 1f
                 background = android.graphics.drawable.GradientDrawable().apply {
                     cornerRadius = dp(14).toFloat()
                     setColor(cSurface)
@@ -639,7 +674,7 @@ class MainActivity : AppCompatActivity() {
             val top3 = s.rank <= 3
             r.addView(
                 badge(s.rank.toString(), if (top3) medal[s.rank - 1] else androidx.core.graphics.ColorUtils.setAlphaComponent(cPrimary, 110),
-                    if (top3) android.graphics.Color.BLACK else cOnSurface),
+                    if (top3) android.graphics.Color.BLACK else cOnSurface).apply { alpha = fade },
                 LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginEnd = dp(8) }
             )
             val nameCol = vbox()
@@ -650,26 +685,57 @@ class MainActivity : AppCompatActivity() {
                 (if (s.dropped) "Dropped" else s.note).takeIf { it.isNotBlank() }
             ).joinToString(" · ")
             nameCol.add(text(sub, 11f, muted = true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+            nameCol.alpha = fade
             r.add(nameCol, wName)
-            r.add(num(s.points.toString(), true, cAccent), wPts)
-            r.add(num(pctNum(s.matchWinPct)), wPct)
-            r.add(num(pctNum(s.oppMatchWinPct)), wPct)
-            r.add(num(pctNum(s.oppOppMatchWinPct)), wPct)
-            if (canDrop) r.setOnClickListener { dropDialog(t, s) }
+            r.add(num(s.points.toString(), true, cAccent).apply { alpha = fade }, wPts)
+            r.add(num(pctNum(s.matchWinPct)).apply { alpha = fade }, wPct)
+            r.add(num(pctNum(s.oppMatchWinPct)).apply { alpha = fade }, wPct)
+            r.add(num(pctNum(s.oppOppMatchWinPct)).apply { alpha = fade }, wPct)
+            if (canDrop) {
+                // Red-bordered bin to drop; dropped players get a restore button instead. Both ask first.
+                val red = 0xFFFF6B6B.toInt()
+                val btn = iconButton(
+                    if (s.dropped) R.drawable.ic_restore else R.drawable.ic_delete,
+                    if (s.dropped) "Reinstate ${s.player.name}" else "Drop ${s.player.name}"
+                ) { dropDialog(t, s) }.apply {
+                    val tint = android.content.res.ColorStateList.valueOf(if (s.dropped) cPrimary else red)
+                    iconTint = tint
+                    strokeColor = tint
+                    strokeWidth = dp(2)
+                    cornerRadius = dp(10)
+                    minWidth = 0; minimumWidth = 0; minHeight = 0; minimumHeight = 0
+                    insetTop = 0; insetBottom = 0
+                    setPadding(0, 0, 0, 0)
+                }
+                r.addView(btn, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginStart = dp(6) })
+            }
             add(r, top = 6)
         }
         add(text("MW% = match win · OMW% = opponents' match win · OOMW% = opponents' opponents'", 10.5f, muted = true), top = 10)
     }
 
     private fun dropDialog(t: Tournament, s: Standing) {
-        val label = if (s.dropped) "Reinstate player" else "Drop from tournament"
-        AlertDialog.Builder(this).setTitle(s.player.name)
-            .setItems(arrayOf(label)) { _, _ ->
-                t.setDropped(s.player.id, !s.dropped)
+        val drop = !s.dropped
+        AlertDialog.Builder(this)
+            .setTitle(if (drop) "Drop ${s.player.name}?" else "Reinstate ${s.player.name}?")
+            .setMessage(
+                if (drop) "They will be skipped when the next round is paired. You can reinstate them later."
+                else "They will be paired again from the next round."
+            )
+            .setPositiveButton(if (drop) "Drop" else "Reinstate") { _, _ ->
+                t.setDropped(s.player.id, drop)
                 store.save()
-                toast("Takes effect from the next round")
+                toast(
+                    when {
+                        !reviewing -> "Takes effect from the next round"
+                        drop -> "Dropped: skipped in the next pairing"
+                        else -> "Reinstated: will be paired next"
+                    }
+                )
                 rerender()
-            }.setNegativeButton("Cancel", null).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     // ---------- decks ----------
