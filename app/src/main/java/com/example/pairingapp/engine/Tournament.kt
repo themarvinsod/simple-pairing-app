@@ -21,6 +21,9 @@ class Tournament(
     val matches: MutableList<Match> = mutableListOf(),
     val decks: MutableMap<String, String> = mutableMapOf(),
     var status: Status = Status.ACTIVE,
+    /** Round clock length in minutes (0 = no timer) and the optional extra time after it runs out. */
+    val roundMinutes: Int = 0,
+    val extraMinutes: Int = 0,
     private val rng: Random = Random.Default
 ) {
     // ---------- basic queries ----------
