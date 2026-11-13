@@ -145,6 +145,19 @@ class EngineTest {
         assertTrue(t.roundMatches(3).any { it.p1 == "p1" || it.p2 == "p1" })
     }
 
+    @Test fun playerDroppedBeforePairingIsSkippedAndTheRestArePaired() {
+        val t = tournament(6, listOf(StageConfig(StageType.SWISS, 3)))
+        for (m in t.roundMatches(1)) t.setResult(m, Result.P1_WIN)
+        t.setDropped("p3", true) // dropped while reviewing the standings, before round 2 is paired
+        assertTrue(t.advance())
+        val r2 = t.roundMatches(2)
+        assertTrue(r2.none { it.p1 == "p3" || it.p2 == "p3" })
+        // the other 5 are all paired: 2 matches and a bye
+        assertEquals(5, r2.sumOf { if (it.isBye) 1 else 2 as Int })
+        // the dropped player still appears in the standings, flagged
+        assertTrue(t.standings().first { it.player.id == "p3" }.dropped)
+    }
+
     @Test fun doubleElimWithSingleEntrantFinishes() {
         val t = tournament(1, listOf(StageConfig(StageType.DOUBLE_ELIM)))
         assertTrue(t.advance())
