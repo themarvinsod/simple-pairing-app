@@ -28,6 +28,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.doAfterTextChanged
+import com.google.android.material.switchmaterial.SwitchMaterial
+import com.example.pairingapp.engine.TimerCore
 import com.example.pairingapp.engine.Bracket
 import com.example.pairingapp.engine.Match
 import com.example.pairingapp.engine.Player
@@ -49,11 +51,14 @@ class MainActivity : AppCompatActivity() {
     private class Draft {
         var name = ""
         var win = "3"; var draw = "1"; var loss = "0"; var doubleLoss = "0"; var bye = "3"
+        var timerMin = "45"; var extraOn = false; var extraMin = "5"
         val stages = mutableListOf(StageDraft(StageType.SWISS, 4))
         val selected = mutableSetOf<String>()
     }
 
     private lateinit var store: Store
+    private lateinit var timer: RoundTimer
+    private var timerUi: (() -> Unit)? = null // refreshes the visible timer card, if any
     private lateinit var root: FrameLayout
     private val stack = ArrayList<() -> View>()
     private var scroll: ScrollView? = null
@@ -64,6 +69,12 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = Store(this)
+        timer = RoundTimer(this) {
+            timerUi?.invoke()
+            // Keep the screen awake while counting so the alarm is not missed.
+            if (timer.core?.running == true) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
         root = FrameLayout(this)
         setContentView(root)
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
@@ -79,6 +90,11 @@ class MainActivity : AppCompatActivity() {
         push { home() }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        timer.detach()
+    }
+
     override fun onPause() {
         super.onPause()
         store.saveNow()
@@ -92,6 +108,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun render(keepScroll: Boolean) {
         val y = if (keepScroll) scroll?.scrollY ?: 0 else 0
+        timerUi = null
         root.removeAllViews()
         val build: () -> View = stack[stack.size - 1]
         root.addView(build())
@@ -215,6 +232,20 @@ class MainActivity : AppCompatActivity() {
             add(r2, top = 4)
             add(text("Double loss: both players lose the match (e.g. both get a game loss). Bye: points for a free win.", 12f, muted = true), top = 4)
 
+            add(text("Round timer", 15f, true), top = 16)
+            add(labeled("Minutes per round (0 = no timer)", d.timerMin) { d.timerMin = it }, top = 4)
+            add(SwitchMaterial(this@MainActivity).apply {
+                text = "Additional time on time-out"
+                isChecked = d.extraOn
+                setOnCheckedChangeListener { _, on -> d.extraOn = on; rerender() }
+            }, top = 8)
+            if (d.extraOn) add(labeled("Additional minutes", d.extraMin) { d.extraMin = it }, top = 4)
+            add(text(
+                "At zero the phone vibrates and plays the alarm ringtone." +
+                    if (d.extraOn) " The clock then restarts with the additional time and rings again at zero." else "",
+                12f, muted = true
+            ), top = 4)
+
             add(text("Stages", 15f, true), top = 16)
             add(text("Chain stages to mix formats, e.g. Swiss → Top 8 single elimination.", 12f, muted = true))
             d.stages.forEachIndexed { i, sd -> add(stageRow(d, i, sd), top = 8) }
@@ -316,9 +347,14 @@ class MainActivity : AppCompatActivity() {
                 stages.add(StageConfig(sd.type, 0, if (i == 0) 0 else sd.n))
             }
         }
+        val roundMin = d.timerMin.trim().toIntOrNull()
+        if (roundMin == null || roundMin < 0 || roundMin > 999) { toast("Round timer must be 0–999 minutes"); return }
+        val extraMin = if (d.extraOn && roundMin > 0) d.extraMin.trim().toIntOrNull() ?: 0 else 0
+        if (d.extraOn && roundMin > 0 && extraMin !in 1..999) { toast("Additional time must be 1–999 minutes"); return }
         val t = Tournament(
             store.newId(), d.name.trim().ifEmpty { "Tournament ${store.tournaments.size + 1}" },
-            PointSystem(pts[0]!!, pts[1]!!, pts[2]!!, pts[3]!!, pts[4]!!), stages, players
+            PointSystem(pts[0]!!, pts[1]!!, pts[2]!!, pts[3]!!, pts[4]!!), stages, players,
+            roundMinutes = roundMin, extraMinutes = extraMin
         )
         t.start()
         store.tournaments.add(t)
@@ -331,6 +367,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun tournamentScreen(t: Tournament): View {
         val rounds = t.currentRound
+        timer.bind(t.id, t.roundMinutes, t.extraMinutes)
         if (viewRound !in 1..rounds) viewRound = rounds
         val editable = t.status == Status.ACTIVE && viewRound == rounds
         return scaffold(t.name, true, bottomBar(t)) {
@@ -364,6 +401,7 @@ class MainActivity : AppCompatActivity() {
                     // that keeps Tournament single-threaded. Save immediately so a new round is never lost.
                     t.advance()
                     store.saveNow()
+                    timer.reset() // every round starts with a fresh clock
                     viewRound = t.currentRound
                     // render(false) rebuilds the page without restoring scroll, so the new round starts at the top.
                     if (t.status == Status.FINISHED) {
@@ -385,7 +423,47 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent.createChooser(send, "Share results"))
     }
 
+    private fun timerCard(): View {
+        val c = card()
+        val label = text("", 12f, muted = true).apply { gravity = Gravity.CENTER }
+        val clock = text("", 44f, true).apply { gravity = Gravity.CENTER }
+        val startBtn = button("Start", accent = true) { timer.toggle() }
+        val resetBtn = button("Reset", true) { timer.reset() }
+        val silenceBtn = button("Silence", true) { timer.silence() }
+        val row = hbox()
+        row.add(startBtn, 1f, end = 8)
+        row.add(resetBtn, 1f, end = 8)
+        row.add(silenceBtn, 1f)
+        c.add(label)
+        c.add(clock)
+        c.add(row, top = 8)
+        fun update() {
+            val s = timer.core ?: return
+            val secs = (s.remainingMs() + 999) / 1000
+            clock.text = "%d:%02d".format(secs / 60, secs % 60)
+            val low = s.phase != TimerCore.Phase.IDLE && secs < 60
+            clock.setTextColor(if (low) 0xFFFF6B6B.toInt() else cAccent)
+            label.text = when (s.phase) {
+                TimerCore.Phase.IDLE -> "Round timer · ready"
+                TimerCore.Phase.ROUND -> "Round time" + if (s.running) "" else " · paused"
+                TimerCore.Phase.EXTRA -> "Additional time" + if (s.running) "" else " · paused"
+                TimerCore.Phase.DONE -> "Time's up"
+            }
+            startBtn.text = when {
+                s.running -> "Pause"
+                s.phase == TimerCore.Phase.IDLE -> "Start"
+                else -> "Resume"
+            }
+            startBtn.isEnabled = s.phase != TimerCore.Phase.DONE
+            silenceBtn.visibility = if (timer.ringing) View.VISIBLE else View.GONE
+        }
+        timerUi = { update() }
+        update()
+        return c
+    }
+
     private fun LinearLayout.pairingsBody(t: Tournament, editable: Boolean) {
+        if (editable && timer.enabled) add(timerCard(), top = 10)
         t.roundMatches(viewRound).forEach { m -> add(matchCard(t, m, editable), top = 10) }
     }
 

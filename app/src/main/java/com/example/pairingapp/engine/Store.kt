@@ -71,6 +71,7 @@ class Store(context: Context) {
 
     private fun writeTournament(t: Tournament) = JSONObject().apply {
         put("id", t.id); put("name", t.name); put("created", t.created); put("status", t.status.name)
+        put("timer", t.roundMinutes); put("extra", t.extraMinutes)
         put("points", JSONObject().put("win", t.points.win).put("draw", t.points.draw).put("loss", t.points.loss)
             .put("doubleLoss", t.points.doubleLoss).put("bye", t.points.bye))
         put("stages", JSONArray().also { a ->
@@ -109,7 +110,8 @@ class Store(context: Context) {
         return Tournament(
             o.getString("id"), o.getString("name"),
             PointSystem(pt.getInt("win"), pt.getInt("draw"), pt.getInt("loss"), pt.getInt("doubleLoss"), pt.getInt("bye")),
-            stages, players, o.getLong("created"), dropped, matches, decks, Status.valueOf(o.getString("status"))
+            stages, players, o.getLong("created"), dropped, matches, decks, Status.valueOf(o.getString("status")),
+            roundMinutes = o.optInt("timer", 0), extraMinutes = o.optInt("extra", 0)
         )
     }
 }
