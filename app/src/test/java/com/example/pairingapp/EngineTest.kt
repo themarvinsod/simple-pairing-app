@@ -72,6 +72,26 @@ class EngineTest {
         assertTrue(t.matches.any { it.bracket == Bracket.RESET })
     }
 
+    @Test fun stageResultsAreFrozenAtTheEndOfEachStage() {
+        val t = tournament(10, listOf(StageConfig(StageType.SWISS, 3), StageConfig(StageType.SINGLE_ELIM, 0, 4)))
+        playOut(t)
+        val results = t.stageResults()
+        assertEquals(2, results.size)
+        assertTrue(results[0].label.startsWith("Stage 1: Swiss"))
+        assertTrue(results[1].label.startsWith("Stage 2: Single elimination"))
+        // Swiss result predates the top cut: no champion yet, everyone listed
+        assertEquals(10, results[0].standings.size)
+        assertTrue(results[0].standings.none { it.note == "Champion" })
+        // Final result has the champion on top
+        assertEquals("Champion", results[1].standings[0].note)
+    }
+
+    @Test fun singleStageTournamentHasOneResult() {
+        val t = tournament(6, listOf(StageConfig(StageType.SWISS, 2)))
+        playOut(t)
+        assertEquals(1, t.stageResults().size)
+    }
+
     @Test fun mixedSwissIntoTopCut() {
         val t = tournament(10, listOf(StageConfig(StageType.SWISS, 4), StageConfig(StageType.SINGLE_ELIM, 0, 4)))
         playOut(t)
