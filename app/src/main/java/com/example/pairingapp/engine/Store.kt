@@ -1,6 +1,8 @@
 package com.example.pairingapp.engine
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -12,14 +14,29 @@ class Store(context: Context) {
     val roster: MutableList<Player> = mutableListOf()
     val tournaments: MutableList<Tournament> = mutableListOf()
 
+    private val handler = Handler(Looper.getMainLooper())
+    private val flush = Runnable { saveNow() }
+
     init {
+        val rawRoster = prefs.getString("roster", "[]")
+        val rawTournaments = prefs.getString("tournaments", "[]")
+        var failed = false
         runCatching {
-            JSONArray(prefs.getString("roster", "[]")).let { a ->
+            JSONArray(rawRoster).let { a ->
                 for (i in 0 until a.length()) a.getJSONObject(i).let { roster.add(Player(it.getString("id"), it.getString("name"))) }
             }
-            JSONArray(prefs.getString("tournaments", "[]")).let { a ->
-                for (i in 0 until a.length()) tournaments.add(readTournament(a.getJSONObject(i)))
+        }.onFailure { failed = true }
+        runCatching {
+            JSONArray(rawTournaments).let { a ->
+                for (i in 0 until a.length()) {
+                    // A bad record is skipped, not allowed to hide the good ones.
+                    runCatching { readTournament(a.getJSONObject(i)) }.onSuccess { tournaments.add(it) }.onFailure { failed = true }
+                }
             }
+        }.onFailure { failed = true }
+        // Keep the untouched raw data so the next save() cannot destroy it.
+        if (failed && !prefs.contains("backup_tournaments")) {
+            prefs.edit().putString("backup_roster", rawRoster).putString("backup_tournaments", rawTournaments).apply()
         }
     }
 
@@ -37,7 +54,14 @@ class Store(context: Context) {
     fun knownDecks(): List<String> =
         tournaments.flatMap { it.decks.values }.map { it.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
 
+    /** Debounced: taps within 500 ms share one write. [saveNow] flushes immediately. */
     fun save() {
+        handler.removeCallbacks(flush)
+        handler.postDelayed(flush, 500)
+    }
+
+    fun saveNow() {
+        handler.removeCallbacks(flush)
         val r = JSONArray()
         roster.forEach { r.put(JSONObject().put("id", it.id).put("name", it.name)) }
         val t = JSONArray()

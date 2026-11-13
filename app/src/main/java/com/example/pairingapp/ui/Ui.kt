@@ -94,10 +94,10 @@ fun Context.banner(): GradientDrawable = GradientDrawable(
     intArrayOf(themeColor(com.google.android.material.R.attr.colorPrimaryVariant, Color.BLUE), cPrimary)
 ).apply { cornerRadii = floatArrayOf(0f, 0f, 0f, 0f, dp(24).toFloat(), dp(24).toFloat(), dp(24).toFloat(), dp(24).toFloat()) }
 
-fun LinearLayout.add(v: View, weight: Float = 0f, w: Int = ViewGroup.LayoutParams.MATCH_PARENT, top: Int = 0, end: Int = 0): View {
+fun LinearLayout.add(v: View, weight: Float = 0f, w: Int = ViewGroup.LayoutParams.MATCH_PARENT, top: Int = 0, end: Int = 0, start: Int = 0): View {
     val width = if (weight > 0f) 0 else w
     addView(v, LinearLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT, weight).apply {
-        topMargin = context.dp(top); marginEnd = context.dp(end)
+        topMargin = context.dp(top); marginEnd = context.dp(end); marginStart = context.dp(start)
     })
     return v
 }

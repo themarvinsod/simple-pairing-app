@@ -17,11 +17,14 @@ object SwissPairer {
             if (sorted.size % 2 == 1) sorted.indices.reversed().sortedBy { if (sorted[it] in hadBye) 1 else 0 }
             else listOf(-1)
 
+        // Time-boxed search: each bye candidate gets a slice, the whole search is capped.
+        val end = System.nanoTime() + 2_000_000_000L
         for (b in byeIdx) {
+            if (System.nanoTime() > end) break
             val rest = sorted.filterIndexed { i, _ -> i != b }
             val out = ArrayList<Pair<String, String>>()
-            val budget = intArrayOf(300_000)
-            if (solve(rest.toMutableList(), played, out, budget)) {
+            val deadline = minOf(end, System.nanoTime() + 300_000_000L)
+            if (solve(rest.toMutableList(), played, out, deadline)) {
                 return Pairing(out, if (b >= 0) sorted[b] else null)
             }
         }
@@ -37,9 +40,9 @@ object SwissPairer {
         return Pairing(out, if (b >= 0) sorted[b] else null)
     }
 
-    private fun solve(list: MutableList<String>, played: Set<String>, out: MutableList<Pair<String, String>>, budget: IntArray): Boolean {
+    private fun solve(list: MutableList<String>, played: Set<String>, out: MutableList<Pair<String, String>>, deadline: Long): Boolean {
         if (list.isEmpty()) return true
-        if (--budget[0] < 0) return false
+        if (System.nanoTime() > deadline) return false
         val first = list[0]
         for (i in 1 until list.size) {
             val cand = list[i]
@@ -47,7 +50,7 @@ object SwissPairer {
             val rest = ArrayList(list)
             rest.removeAt(i); rest.removeAt(0)
             out.add(first to cand)
-            if (solve(rest, played, out, budget)) return true
+            if (solve(rest, played, out, deadline)) return true
             out.removeAt(out.size - 1)
         }
         return false

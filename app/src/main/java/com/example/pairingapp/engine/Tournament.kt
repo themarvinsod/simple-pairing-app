@@ -73,7 +73,8 @@ class Tournament(
             StageType.SWISS -> rs.map { it.round }.distinct().size >= stages[si].swissRounds
             StageType.SINGLE_ELIM -> last.size == 1
             StageType.DOUBLE_ELIM ->
-                last.any { it.bracket == Bracket.RESET } ||
+                (last.size == 1 && last[0].isBye) || // a lone entrant has nobody left to play
+                    last.any { it.bracket == Bracket.RESET } ||
                     last.any { it.bracket == Bracket.FINAL && it.result == Result.P1_WIN }
         }
     }
@@ -135,7 +136,9 @@ class Tournament(
         val round = currentRound + 1
         when (stages[si].type) {
             StageType.SWISS -> {
-                val field = matches.filter { it.stage == si && it.round == currentRound }
+                // The stage's first round holds every entrant, so reinstated players come back.
+                val firstRound = matches.filter { it.stage == si }.minOf { it.round }
+                val field = matches.filter { it.stage == si && it.round == firstRound }
                     .flatMap { listOfNotNull(it.p1, it.p2) }
                 swissRound(si, round, field)
             }
@@ -301,4 +304,6 @@ class Tournament(
     }
 }
 
-fun pct(v: Double): String = "%.1f%%".format(v * 100)
+fun pctNum(v: Double): String = "%.1f".format(v * 100)
+
+fun pct(v: Double): String = pctNum(v) + "%"
