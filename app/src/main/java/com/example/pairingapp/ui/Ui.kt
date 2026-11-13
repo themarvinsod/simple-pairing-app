@@ -57,6 +57,15 @@ fun Context.button(label: String, outlined: Boolean = false, accent: Boolean = f
         setOnClickListener { onClick() }
     }
 
+/** Icon-only button (vector drawable), so it never depends on the device font having a glyph. */
+fun Context.iconButton(iconRes: Int, description: String, outlined: Boolean = true, onClick: () -> Unit): MaterialButton =
+    button("", outlined, onClick = onClick).apply {
+        setIconResource(iconRes)
+        iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
+        iconPadding = 0
+        contentDescription = description
+    }
+
 fun Context.vbox(pad: Int = 0): LinearLayout = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
     setPadding(dp(pad), dp(pad), dp(pad), dp(pad))

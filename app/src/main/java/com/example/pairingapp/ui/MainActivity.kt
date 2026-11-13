@@ -30,6 +30,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.doAfterTextChanged
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.example.pairingapp.engine.TimerCore
+import com.example.pairingapp.R
 import com.example.pairingapp.engine.Bracket
 import com.example.pairingapp.engine.Match
 import com.example.pairingapp.engine.Player
@@ -123,8 +124,9 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(8), dp(10), dp(16), dp(14))
             background = banner()
         }
-        if (canBack) header.add(button("←", true) { pop() }.apply {
-            setTextColor(android.graphics.Color.WHITE); strokeColor = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
+        if (canBack) header.add(iconButton(R.drawable.ic_arrow_back, "Back") { pop() }.apply {
+            val white = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
+            iconTint = white; strokeColor = white
         }, w = WRAP_CONTENT, end = 8)
         else header.setPadding(dp(20), dp(16), dp(16), dp(18))
         header.add(text(title, 22f, true).apply {
@@ -158,7 +160,7 @@ class MainActivity : AppCompatActivity() {
             c.add(text(t.name, 17f, true))
             val state = if (t.status == Status.FINISHED) "Finished" else "${t.roundTitle(t.currentRound)} in progress"
             c.add(text("${t.players.size} players · $state", 13f, muted = true), top = 2)
-            c.add(text(t.stages.joinToString("  →  ") { it.describe() }, 12f, muted = true), top = 2)
+            c.add(text(t.stages.joinToString("  >  ") { it.describe() }, 12f, muted = true), top = 2)
             c.setOnClickListener { openTournament(t) }
             c.setOnLongClickListener {
                 confirm("Delete tournament?", "“${t.name}” and all its results will be removed.") {
@@ -196,7 +198,7 @@ class MainActivity : AppCompatActivity() {
         store.roster.sortedBy { it.name.lowercase() }.forEach { p ->
             val r = hbox().apply { setPadding(0, dp(2), 0, dp(2)) }
             r.add(text(p.name, 16f), 1f)
-            r.add(button("✕", true) {
+            r.add(iconButton(R.drawable.ic_close, "Remove ${p.name}") {
                 confirm("Remove player?", "Remove ${p.name} from the registered list? Past tournaments keep their results.") {
                     store.removePlayer(p); rerender()
                 }
@@ -247,7 +249,7 @@ class MainActivity : AppCompatActivity() {
             ), top = 4)
 
             add(text("Stages", 15f, true), top = 16)
-            add(text("Chain stages to mix formats, e.g. Swiss → Top 8 single elimination.", 12f, muted = true))
+            add(text("Chain stages to mix formats, e.g. Swiss, then Top 8 single elimination.", 12f, muted = true))
             d.stages.forEachIndexed { i, sd -> add(stageRow(d, i, sd), top = 8) }
             add(button("+ Add stage", true) {
                 d.stages.add(StageDraft(StageType.SINGLE_ELIM, 8)); rerender()
@@ -315,7 +317,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         row.add(spinner, 1f, end = 8)
-        if (d.stages.size > 1) row.add(button("✕", true) { d.stages.removeAt(index); rerender() }, w = WRAP_CONTENT)
+        if (d.stages.size > 1) row.add(iconButton(R.drawable.ic_close, "Remove stage") { d.stages.removeAt(index); rerender() }, w = WRAP_CONTENT)
         c.add(row)
         when {
             !sd.type.isElim -> {
@@ -372,9 +374,9 @@ class MainActivity : AppCompatActivity() {
         val editable = t.status == Status.ACTIVE && viewRound == rounds
         return scaffold(t.name, true, bottomBar(t)) {
             val nav = hbox()
-            nav.add(button("◀", true) { if (viewRound > 1) { viewRound--; rerender() } }, w = WRAP_CONTENT)
+            nav.add(iconButton(R.drawable.ic_chevron_left, "Previous round") { if (viewRound > 1) { viewRound--; rerender() } }, w = WRAP_CONTENT)
             nav.add(text("Round $viewRound of $rounds\n${t.roundTitle(viewRound)}", 15f, true).apply { gravity = Gravity.CENTER }, 1f)
-            nav.add(button("▶", true) { if (viewRound < rounds) { viewRound++; rerender() } }, w = WRAP_CONTENT)
+            nav.add(iconButton(R.drawable.ic_chevron_right, "Next round") { if (viewRound < rounds) { viewRound++; rerender() } }, w = WRAP_CONTENT)
             add(nav)
             val tabs = hbox()
             tabs.add(button("Pairings", tab != 0) { tab = 0; rerender() }, 1f, end = 8)
@@ -508,7 +510,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun resultButton(t: Tournament, m: Match, r: Result, label: String) =
-        button(if (m.result == r) "✓ $label" else label, outlined = m.result != r, accent = m.result == r) {
+        button(label, outlined = m.result != r, accent = m.result == r) {
             if (t.setResult(m, if (m.result == r) Result.PENDING else r)) { store.save(); rerender() }
         }
 
