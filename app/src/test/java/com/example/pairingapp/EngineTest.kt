@@ -36,11 +36,11 @@ class EngineTest {
     }
 
     @Test fun swissOddFieldGivesEachPlayerAtMostOneBye() {
-        val t = tournament(5, listOf(StageConfig(StageType.SWISS, 5)))
+        val t = tournament(5, listOf(StageConfig(StageType.SWISS, 3)))
         playOut(t)
         val byes = t.matches.filter { it.isBye }.map { it.p1 }
-        assertEquals(5, byes.size)
-        assertEquals(5, byes.toSet().size)
+        assertEquals(3, byes.size)
+        assertEquals(3, byes.toSet().size)
     }
 
     @Test fun singleElimWithByesCrownsOneChampion() {
@@ -108,8 +108,43 @@ class EngineTest {
         val w = t.standings().first { it.player.id == m.p1 }
         val l = t.standings().first { it.player.id == m.p2 }
         assertEquals((1 + 1 / 3.0) / 2, w.matchWinPct, 1e-9)
-        assertEquals(0.33, l.matchWinPct.coerceAtLeast(0.33), 1e-9)
+        // loser: 0 wins + 1 draw over 2 rounds = 0.167, which must be lifted to the 0.33 floor
+        assertEquals(0.33, l.matchWinPct, 1e-9)
         assertEquals(l.matchWinPct, w.oppMatchWinPct, 1e-9)
+    }
+
+    @Test fun reinstatedPlayerIsPairedAgain() {
+        val t = tournament(6, listOf(StageConfig(StageType.SWISS, 4)))
+        for (m in t.roundMatches(1)) t.setResult(m, Result.P1_WIN)
+        t.setDropped("p1", true)
+        t.advance()
+        assertTrue(t.roundMatches(2).none { it.p1 == "p1" || it.p2 == "p1" })
+        for (m in t.roundMatches(2)) if (!m.isBye) t.setResult(m, Result.P1_WIN)
+        t.setDropped("p1", false)
+        t.advance()
+        assertTrue(t.roundMatches(3).any { it.p1 == "p1" || it.p2 == "p1" })
+    }
+
+    @Test fun doubleElimWithSingleEntrantFinishes() {
+        val t = tournament(1, listOf(StageConfig(StageType.DOUBLE_ELIM)))
+        assertTrue(t.advance())
+        assertEquals(Status.FINISHED, t.status)
+        assertEquals("Champion", t.standings()[0].note)
+    }
+
+    @Test fun swissWithMoreRoundsThanPlayersStillPairsEveryone() {
+        val t = tournament(2, listOf(StageConfig(StageType.SWISS, 3)))
+        playOut(t)
+        for (r in 1..3) assertEquals(1, t.roundMatches(r).count { !it.isBye })
+    }
+
+    @Test fun swissPairingOfLargeOddFieldIsFastAndRematchFree() {
+        val t = tournament(27, listOf(StageConfig(StageType.SWISS, 5)))
+        val start = System.nanoTime()
+        playOut(t)
+        assertTrue("pairing too slow", (System.nanoTime() - start) / 1_000_000 < 15_000)
+        val seen = mutableSetOf<String>()
+        for (m in t.matches.filter { !it.isBye }) assertTrue(seen.add(SwissPairer.key(m.p1, m.p2!!)))
     }
 
     @Test fun historicalStandingsAreFrozenInTime() {

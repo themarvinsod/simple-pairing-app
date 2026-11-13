@@ -13,3 +13,7 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# IDE: keep only shared settings
+/.idea/*
+!/.idea/codeStyles/

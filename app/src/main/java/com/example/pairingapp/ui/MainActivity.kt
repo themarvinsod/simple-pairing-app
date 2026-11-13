@@ -39,7 +39,7 @@ import com.example.pairingapp.engine.Standing
 import com.example.pairingapp.engine.Status
 import com.example.pairingapp.engine.Store
 import com.example.pairingapp.engine.Tournament
-import com.example.pairingapp.engine.pct
+import com.example.pairingapp.engine.pctNum
 import com.example.pairingapp.engine.suggestedSwissRounds
 
 class MainActivity : AppCompatActivity() {
@@ -61,7 +61,6 @@ class MainActivity : AppCompatActivity() {
     private var draft = Draft()
     private var viewRound = 0
     private var tab = 0 // 0 = pairings, 1 = standings
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = Store(this)
@@ -82,7 +81,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        store.save()
+        store.saveNow()
     }
 
     // ---------- navigation ----------
@@ -361,8 +360,10 @@ class MainActivity : AppCompatActivity() {
             else -> {
                 val ok = t.canAdvance()
                 val b = button(if (ok) t.nextStepLabel() else "${t.pendingCount(t.currentRound)} result(s) still missing") {
+                    // Pairing is time-capped (2 s) in SwissPairer, so it is safe on the UI thread;
+                    // that keeps Tournament single-threaded. Save immediately so a new round is never lost.
                     t.advance()
-                    store.save()
+                    store.saveNow()
                     viewRound = t.currentRound
                     if (t.status == Status.FINISHED) {
                         tab = 1
@@ -402,8 +403,7 @@ class MainActivity : AppCompatActivity() {
                 val row = hbox()
                 row.add(resultButton(t, m, Result.P1_WIN, a), 1f, end = 4)
                 row.add(text("vs", 13f, muted = true), w = WRAP_CONTENT)
-                row.add(resultButton(t, m, Result.P2_WIN, b).apply { }, 1f)
-                (row.getChildAt(2).layoutParams as LinearLayout.LayoutParams).marginStart = dp(4)
+                row.add(resultButton(t, m, Result.P2_WIN, b), 1f, start = 4)
                 c.add(row, top = 4)
                 if (m.bracket == Bracket.SWISS) {
                     val row2 = hbox()
@@ -482,9 +482,9 @@ class MainActivity : AppCompatActivity() {
             nameCol.add(text(sub, 11f, muted = true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
             r.add(nameCol, wName)
             r.add(num(s.points.toString(), true, cAccent), wPts)
-            r.add(num("%.1f".format(s.matchWinPct * 100)), wPct)
-            r.add(num("%.1f".format(s.oppMatchWinPct * 100)), wPct)
-            r.add(num("%.1f".format(s.oppOppMatchWinPct * 100)), wPct)
+            r.add(num(pctNum(s.matchWinPct)), wPct)
+            r.add(num(pctNum(s.oppMatchWinPct)), wPct)
+            r.add(num(pctNum(s.oppOppMatchWinPct)), wPct)
             if (canDrop) r.setOnClickListener { dropDialog(t, s) }
             add(r, top = 6)
         }
