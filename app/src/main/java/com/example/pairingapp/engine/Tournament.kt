@@ -15,7 +15,7 @@ class Tournament(
     var name: String,
     val points: PointSystem,
     val stages: List<StageConfig>,
-    val players: List<Player>,
+    players: List<Player>,
     val created: Long = System.currentTimeMillis(),
     val dropped: MutableSet<String> = mutableSetOf(),
     val matches: MutableList<Match> = mutableListOf(),
@@ -24,8 +24,12 @@ class Tournament(
     /** Round clock length in minutes (0 = no timer) and the optional extra time after it runs out. */
     val roundMinutes: Int = 0,
     val extraMinutes: Int = 0,
+    /** Late entrants: player id -> Swiss rounds already played when they joined (each counts as a loss). */
+    val late: MutableMap<String, Int> = mutableMapOf(),
     private val rng: Random = Random.Default
 ) {
+    val players: MutableList<Player> = players.toMutableList()
+
     // ---------- basic queries ----------
 
     fun name(id: String) = players.firstOrNull { it.id == id }?.name ?: "?"
@@ -110,6 +114,31 @@ class Tournament(
         return true
     }
 
+    /**
+     * Late entries are only possible between two Swiss rounds of the first stage, while the stage is
+     * still young: not once 80% of its rounds are played, and not with fewer than 2 rounds left.
+     */
+    fun canAddPlayer(): Boolean {
+        if (!canAdvance()) return false
+        val si = currentStage
+        if (si != 0 || stages[0].type != StageType.SWISS || stageDone(0)) return false
+        val total = stages[0].swissRounds
+        val played = matches.filter { it.stage == 0 }.map { it.round }.distinct().size
+        return played * 5 < total * 4 && total - played >= 2
+    }
+
+    /**
+     * Adds [p] before the next Swiss round. Every Swiss round already played in this stage
+     * counts as a loss for them (with the point system's loss points).
+     */
+    fun addLatePlayer(p: Player): Boolean {
+        if (!canAddPlayer() || players.any { it.id == p.id }) return false
+        val si = currentStage
+        late[p.id] = matches.filter { it.stage == si }.map { it.round }.distinct().size
+        players.add(p)
+        return true
+    }
+
     fun setDropped(id: String, drop: Boolean) {
         if (drop) dropped.add(id) else dropped.remove(id)
     }
@@ -143,7 +172,7 @@ class Tournament(
                 val firstRound = matches.filter { it.stage == si }.minOf { it.round }
                 val field = matches.filter { it.stage == si && it.round == firstRound }
                     .flatMap { listOfNotNull(it.p1, it.p2) }
-                swissRound(si, round, field)
+                swissRound(si, round, if (si == 0) field + late.keys.filter { it !in field } else field)
             }
             StageType.SINGLE_ELIM -> {
                 val winners = roundMatches(currentRound).mapNotNull { it.winner() }
@@ -232,6 +261,10 @@ class Tournament(
         val done = matches.filter { it.round <= upTo && it.result != Result.PENDING }
         val scored = done.filter { if (swissMode) it.bracket == Bracket.SWISS else !it.isBye }
         val acc = players.associate { it.id to Acc() }
+        if (swissMode) for ((id, missed) in late) acc[id]?.let { // rounds missed before joining = losses
+            val n = minOf(missed, upTo)
+            it.l += n; it.played += n; it.pts += n * points.loss
+        }
         for (m in scored) {
             val a = acc[m.p1] ?: continue
             if (m.p2 == null) {

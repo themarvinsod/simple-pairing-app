@@ -39,6 +39,7 @@ Everything is stored on the phone. There is no account, no server and no network
 | **Players** | A registered player list that is kept between tournaments, plus a text input to add a new player right on the new-tournament page. |
 | **Standings** | Rank, player, points, W-L-D, **match win % (MW%)**, **opponents' match win % (OMW%)**, **opponents' opponents' match win % (OOMW%)**, status and deck. View the standings after any past round. |
 | **Round timer** | Minutes per round (default 45, 0 turns it off) and an optional **additional time** that restarts the clock automatically when it hits zero. At zero the phone **vibrates and plays the default alarm ringtone**. |
+| **Late players** | In the review step between two Swiss rounds of the *first* stage you can add a player who just arrived. They start with one loss per Swiss round already played (e.g. joining before round 2 = 1 loss) and are paired from the next round. Not allowed once 80% of the first stage is played or fewer than 2 rounds remain. |
 | **Drop players** | After each round you review the current standings first, and can drop (or reinstate) players with a confirmed bin button before the next round is paired. |
 | **Decks** | A deck-name screen at the end of the tournament, with autocomplete from decks you used before. |
 | **Export** | Share the results as text, or **download them as PNG images**. With several stages you pick which stage results to download. |

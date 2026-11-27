@@ -400,10 +400,50 @@ class MainActivity : AppCompatActivity() {
                 val c = card()
                 c.add(text("Review the standings", 15f, true))
                 c.add(text("Use the red bin button in Standings to drop a player (you will be asked to confirm). Dropped players are skipped when the next round is paired.", 13f, muted = true), top = 2)
+                if (t.canAddPlayer()) c.add(button("Add late player", true) { lateDialog(t) }, top = 10)
                 add(c, top = 10)
             }
             if (tab == 0) pairingsBody(t, editable) else standingsBody(t)
         }
+    }
+
+    /** Late entry between Swiss rounds: each new player starts with a loss for every round already played. */
+    private fun lateDialog(t: Tournament) {
+        val missed = t.matches.filter { it.stage == t.currentStage }.map { it.round }.distinct().size
+        val loss = if (missed == 1) "loss" else "losses"
+        val body = vbox(20)
+        body.add(text("Joins from round ${t.currentRound + 1} and starts with $missed $loss for the rounds already played.", 13f, muted = true))
+        val field = input("New player name")
+        body.add(field, top = 8)
+        val ids = t.players.map { it.id }.toSet()
+        val avail = store.roster.filter { it.id !in ids }.sortedBy { it.name.lowercase() }
+        val checked = mutableSetOf<String>()
+        if (avail.isNotEmpty()) {
+            body.add(text("Or tick registered players", 13f, true), top = 12)
+            avail.forEach { p ->
+                body.add(CheckBox(this).apply {
+                    text = p.name
+                    textSize = 16f
+                    setOnCheckedChangeListener { _, on -> if (on) checked.add(p.id) else checked.remove(p.id) }
+                })
+            }
+        }
+        val scroll = ScrollView(this).apply { addView(body) }
+        AlertDialog.Builder(this)
+            .setTitle("Add late players")
+            .setView(scroll)
+            .setPositiveButton("Add") { _, _ ->
+                val picks = avail.filter { it.id in checked }.toMutableList()
+                val n = field.text.toString().trim()
+                if (n.isNotEmpty()) (store.addPlayer(n) ?: store.roster.firstOrNull { it.name.equals(n, true) })?.let { p ->
+                    if (p.id !in ids && picks.none { it.id == p.id }) picks.add(p)
+                }
+                val added = picks.count { t.addLatePlayer(it) }
+                if (added > 0) { store.saveNow(); toast("$added added with $missed $loss each"); render(false) }
+                else toast("Nobody added")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     /** Show the standings first whenever the next step pairs Swiss players (the only place dropping matters). */
