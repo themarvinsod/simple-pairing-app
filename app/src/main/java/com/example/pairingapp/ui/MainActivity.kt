@@ -18,6 +18,12 @@ import android.widget.ArrayAdapter
 import android.widget.AutoCompleteTextView
 import android.widget.CheckBox
 import android.widget.FrameLayout
+import android.widget.ImageView
+import android.graphics.Bitmap
+import android.graphics.Outline
+import android.net.Uri
+import android.view.ViewOutlineProvider
+import androidx.activity.result.contract.ActivityResultContracts
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -80,6 +86,9 @@ class MainActivity : AppCompatActivity() {
     private var viewRound = 0
     private var tab = 0 // 0 = pairings, 1 = standings
     private var reviewing = false // standings preview shown before the next round is paired
+    private var imageTarget: Pair<Tournament, Player>? = null // whose deck picture is being picked
+    private var onLeaveDecks: (() -> Unit)? = null // runs when the deck-names screen is closed
+    private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let { onImagePicked(it) } }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = Store(this)
@@ -117,7 +126,7 @@ class MainActivity : AppCompatActivity() {
     // ---------- navigation ----------
 
     private fun push(screen: () -> View) { stack.add(screen); render(false) }
-    private fun pop() { store.save(); stack.removeAt(stack.size - 1); render(false) }
+    private fun pop() { onLeaveDecks?.invoke(); onLeaveDecks = null; store.save(); stack.removeAt(stack.size - 1); render(false) }
     private fun rerender() = render(true)
 
     private fun render(keepScroll: Boolean) {
@@ -177,7 +186,7 @@ class MainActivity : AppCompatActivity() {
             c.setOnClickListener { openTournament(t) }
             c.setOnLongClickListener {
                 confirm("Delete tournament?", "“${t.name}” and all its results will be removed.") {
-                    store.tournaments.remove(t); store.save(); rerender()
+                    DeckImages.removeAll(this@MainActivity, t.id); store.tournaments.remove(t); store.save(); rerender()
                 }
                 true
             }
@@ -541,6 +550,7 @@ class MainActivity : AppCompatActivity() {
         toast("Saving...")
         val multi = t.stages.size > 1
         val title = t.name
+        val tid = t.id
         val base = title.replace(Regex("[^A-Za-z0-9]+"), "_").trim('_').ifEmpty { "tournament" }
         val app = applicationContext
         // The standings are immutable snapshots, so drawing and PNG-encoding can run off the UI thread.
@@ -553,9 +563,11 @@ class MainActivity : AppCompatActivity() {
                 pages.forEachIndexed { i, rows ->
                     total++
                     val label = if (pages.size > 1) "page ${i + 1}/${pages.size}" else null
+                    val images = rows.mapNotNull { s -> DeckImages.loadFor(app, tid, s.player.id, s.deck, maxW = 1000)?.let { s.player.id to it } }.toMap()
                     val bmp = runCatching {
-                        ResultImage.render(title, if (multi) r.label else null, rows, r.standings.size, label)
+                        ResultImage.render(title, if (multi) r.label else null, rows, r.standings.size, label, images)
                     }.getOrNull() // includes OutOfMemoryError
+                    images.values.forEach { it.recycle() }
                     if (bmp != null) {
                         val file = (if (multi) "${base}_stage${r.stage + 1}" else "${base}_results") +
                             if (pages.size > 1) "_p${i + 1}" else ""
@@ -783,10 +795,13 @@ class MainActivity : AppCompatActivity() {
     private fun decksScreen(t: Tournament): View {
         val done = vbox(12).apply { add(button("Done") { pop() }) }
         val suggestions = store.knownDecks()
+        // Leaving the screen files pictures added before their deck name was typed into the deck library.
+        onLeaveDecks = { t.players.forEach { DeckImages.promote(this, t.id, it.id, t.decks[it.id].orEmpty()) } }
         return scaffold("Deck names", true, done) {
-            add(text("Which deck did each player run? Optional — you can come back later.", 13f, muted = true))
+            add(text("Which deck did each player run? Optional — you can come back later. A picture added to a deck name is reused for that deck in every tournament.", 13f, muted = true))
             t.standings().forEach { s ->
                 add(text("${s.rank}. ${s.player.name}", 15f, true), top = 12)
+                val pic = deckPictureRow(t, s.player)
                 add(AutoCompleteTextView(this@MainActivity).apply {
                     hint = "Deck name"
                     setSingleLine()
@@ -797,9 +812,98 @@ class MainActivity : AppCompatActivity() {
                     doAfterTextChanged {
                         val v = it?.toString().orEmpty().trim()
                         if (v.isEmpty()) t.decks.remove(s.player.id) else t.decks[s.player.id] = v
+                        pic.refresh() // a known deck name shows its saved picture straight away
                     }
+                    onItemClickListener = AdapterView.OnItemClickListener { _, _, _, _ -> pic.refresh() }
                 })
+                add(pic.view, top = 6)
             }
         }
+    }
+
+    private class DeckPicture(val view: View, val refresh: () -> Unit)
+
+    /** A player's deck picture as the banner it becomes in the result image, plus Add / Change / Remove buttons. */
+    private fun deckPictureRow(t: Tournament, p: Player): DeckPicture {
+        val box = vbox()
+        val banner = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(v: View, o: Outline) = o.setRoundRect(0, 0, v.width, v.height, dp(8).toFloat())
+            }
+            clipToOutline = true
+            contentDescription = "Deck picture of ${p.name}"
+            visibility = View.GONE
+        }
+        box.addView(banner, LinearLayout.LayoutParams(MATCH_PARENT, dp(36)).apply { bottomMargin = dp(6) })
+        val refresh = arrayOf<() -> Unit>({})
+        val pick = button("Add image", true) {
+            imageTarget = t to p
+            pickImage.launch("image/*")
+        }
+        val bin = iconButton(R.drawable.ic_delete, "Remove deck picture of ${p.name}") {
+            val deck = t.decks[p.id].orEmpty()
+            val remove = {
+                val library = DeckImages.removeFor(this, t.id, p.id, deck)
+                if (library) toast("Picture removed for every \"$deck\" player")
+                rerender()
+            }
+            if (deck.isBlank()) remove()
+            else confirm("Remove picture?", "This removes the \"$deck\" picture for every player and tournament that uses this deck.") { remove() }
+        }
+        val row = hbox()
+        row.add(pick, 1f)
+        row.add(bin, w = WRAP_CONTENT, start = 8)
+        box.add(row)
+        var shown: String? = "" // the file on screen, so typing in the deck field only decodes when it really changes
+        refresh[0] = {
+            val file = DeckImages.resolve(this, t.id, p.id, t.decks[p.id].orEmpty())
+            val key = file?.let { "${it.path}:${it.lastModified()}" }
+            if (key != shown) {
+                shown = key
+                val bmp = file?.let { DeckImages.loadFor(this, t.id, p.id, t.decks[p.id].orEmpty(), maxW = 600) }
+                banner.setImageBitmap(bmp)
+                banner.visibility = if (bmp != null) View.VISIBLE else View.GONE
+                pick.text = if (bmp != null) "Change image" else "Add image"
+                bin.visibility = if (bmp != null) View.VISIBLE else View.GONE
+            }
+        }
+        refresh[0]()
+        return DeckPicture(box) { refresh[0]() }
+    }
+
+    private fun onImagePicked(uri: Uri) {
+        val (t, p) = imageTarget ?: return
+        toast("Loading picture...")
+        Thread {
+            val bmp = DeckImages.decode(applicationContext, uri)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) bmp?.recycle()
+                else if (bmp == null) toast("Could not read that picture") else cropDialog(t, p, bmp)
+            }
+        }.start()
+    }
+
+    private fun cropDialog(t: Tournament, p: Player, bmp: Bitmap) {
+        val crop = CropView(this, bmp)
+        val deck = t.decks[p.id].orEmpty()
+        val body = vbox(8)
+        body.add(text(
+            "Drag to move, pinch to zoom. The framed strip becomes ${p.name}'s row in the result image." +
+                if (deck.isBlank()) " Type the deck name first if you want to reuse this picture for the deck later." else " It is saved for the deck \"$deck\" and reused wherever that deck appears.",
+            13f, muted = true
+        ))
+        body.addView(crop, LinearLayout.LayoutParams(MATCH_PARENT, dp(300)).apply { topMargin = dp(8) })
+        AlertDialog.Builder(this)
+            .setTitle("Crop deck picture")
+            .setView(body)
+            .setPositiveButton("Use picture") { _, _ ->
+                val out = crop.cropped()
+                if (DeckImages.saveFor(this, t.id, p.id, t.decks[p.id].orEmpty(), out)) rerender() else toast("Could not save the picture")
+                out.recycle()
+            }
+            .setNegativeButton("Cancel", null)
+            .setOnDismissListener { bmp.recycle() } // fires after every way of closing, once the crop view is gone
+            .show()
     }
 }

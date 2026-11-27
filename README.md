@@ -41,8 +41,8 @@ Everything is stored on the phone. There is no account, no server and no network
 | **Round timer** | Minutes per round (default 45, 0 turns it off) and an optional **additional time** that restarts the clock automatically when it hits zero. At zero the phone **vibrates and plays the default alarm ringtone**. |
 | **Late players** | In the review step between two Swiss rounds of the *first* stage you can add a player who just arrived. They start with one loss per Swiss round already played (e.g. joining before round 2 = 1 loss) and are paired from the next round. Not allowed once 80% of the first stage is played or fewer than 2 rounds remain. |
 | **Drop players** | After each round you review the current standings first, and can drop (or reinstate) players with a confirmed bin button before the next round is paired. |
-| **Decks** | A deck-name screen at the end of the tournament, with autocomplete from decks you used before. |
-| **Export** | Share the results as text, or **download them as PNG images**. With several stages you pick which stage results to download. |
+| **Decks** | A deck-name screen at the end of the tournament, with autocomplete from decks you used before. Each deck name can also get a **deck picture**, reused in every tournament: pick an image, drag and pinch to crop it to a wide strip, and it becomes the background of their row in the downloaded result image, with the name and deck name drawn over it. |
+| **Export** | Share the results as text, or **download them as PNG images**. With several stages you pick which stage results to download. The image is deliberately minimal: final standing, player name and deck name only (the in-app standings keep every statistic). |
 | **Look** | A dark violet-and-gold theme. Everything is one Activity with programmatic views, so there are no extra dependencies beyond AppCompat and Material. |
 
 ---
@@ -112,6 +112,9 @@ Single elimination handles byes for the top seeds when the field is not a power 
 </p>
 
 When the last round is reported and you press **Finish tournament**, the deck-name screen opens (it is optional, and you can return to it with **Deck names**).
+
+Under each deck name, **Add image** opens the photo picker, then a crop dialog with a fixed wide-strip frame (drag to move, pinch to zoom). The cropped picture is stored in the app's private storage (not in the saved tournament data) in a **deck library keyed by deck name** (case-insensitive), so typing or choosing a deck you used before shows its picture straight away, in any tournament. A picture added before the deck name was typed is filed under the name when you leave the screen; with no deck name it stays with that player in that tournament only (and is deleted with it). The bin button removes the picture for every player using that deck name; clearing the app data loses the library. It fills the whole row in every downloaded result image, under a light dark veil so the name stays readable; rows without a picture look as before.
+
 The finished tournament shows the final standings with the champion highlighted, plus:
 
 - **Share results**: the standings as plain text through the Android share sheet;
@@ -280,12 +283,11 @@ These are the problems and limitations known today. They are grouped by area; no
 - The preview card stays visible while you browse older rounds, even though there are no bins there. After the last Swiss stage the toast says "next round" although the next press finishes the tournament.
 - On narrow phones (360 dp wide) or larger font sizes, the standings columns are tight: the **OOMW%** header and `100.0` values can clip. The status/deck line truncates long text (for example "Champion" becomes "Cham...").
 - The bin buttons are 40 dp, smaller than the recommended 48 dp touch target.
-- Dropped state is stored for the whole tournament, not per round. A stage image or an old round's standings can show a player as *Dropped* even if they dropped in a later round, and decks entered later appear on every stage's image.
+- Dropped state is stored for the whole tournament, not per round. An old round's standings can show a player as *Dropped* even if they dropped in a later round, and decks entered later appear on every stage's image.
 
 ### Downloads and sharing
 
 - File names keep only ASCII letters and digits, so tournaments named in other scripts all become `tournament_results.png`. Android 10+ auto-renames duplicates; on Android 9 and below a second download would overwrite the first.
-- The image footer legend can clip with wide fonts, and its last item reads "opponents' opponents'" without "match win".
 - Android 9 and below: a double tap before granting storage permission can lose the pending download, and "never ask again" gives no route to Settings.
 - Multi-page output (more than 50 players) and the Android 9 permission path are untested. Page names are not zero-padded (`_p10` sorts before `_p2`).
 - The "Saving..." toast is followed almost at once by the result toast, and the toast keeps a reference to the Activity until a big save ends.
