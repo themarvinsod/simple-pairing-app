@@ -114,11 +114,17 @@ class Tournament(
         return true
     }
 
-    /** Late entries are possible between two Swiss rounds of the same stage, before the next one is paired. */
+    /**
+     * Late entries are only possible between two Swiss rounds of the first stage, while the stage is
+     * still young: not once 80% of its rounds are played, and not with fewer than 2 rounds left.
+     */
     fun canAddPlayer(): Boolean {
         if (!canAdvance()) return false
         val si = currentStage
-        return stages[si].type == StageType.SWISS && !stageDone(si)
+        if (si != 0 || stages[0].type != StageType.SWISS || stageDone(0)) return false
+        val total = stages[0].swissRounds
+        val played = matches.filter { it.stage == 0 }.map { it.round }.distinct().size
+        return played * 5 < total * 4 && total - played >= 2
     }
 
     /**
@@ -166,7 +172,7 @@ class Tournament(
                 val firstRound = matches.filter { it.stage == si }.minOf { it.round }
                 val field = matches.filter { it.stage == si && it.round == firstRound }
                     .flatMap { listOfNotNull(it.p1, it.p2) }
-                swissRound(si, round, field + late.keys.filter { it !in field })
+                swissRound(si, round, if (si == 0) field + late.keys.filter { it !in field } else field)
             }
             StageType.SINGLE_ELIM -> {
                 val winners = roundMatches(currentRound).mapNotNull { it.winner() }

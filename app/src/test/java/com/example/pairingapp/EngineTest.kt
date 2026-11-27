@@ -32,7 +32,7 @@ class EngineTest {
         playOut(t)
         val seen = mutableSetOf<String>()
         for (m in t.matches.filter { !it.isBye }) assertTrue("rematch", seen.add(SwissPairer.key(m.p1, m.p2!!)))
-        for (r in 1..5) assertEquals(8, t.roundMatches(r).sumOf { if (it.isBye) 1 else 2 as Int })
+        for (r in 1..5) assertEquals(8, t.roundMatches(r).sumOf { if (it.isBye) 1 else 2 })
     }
 
     @Test fun swissOddFieldGivesEachPlayerAtMostOneBye() {
@@ -153,7 +153,7 @@ class EngineTest {
         val r2 = t.roundMatches(2)
         assertTrue(r2.none { it.p1 == "p3" || it.p2 == "p3" })
         // the other 5 are all paired: 2 matches and a bye
-        assertEquals(5, r2.sumOf { if (it.isBye) 1 else 2 as Int })
+        assertEquals(5, r2.sumOf { if (it.isBye) 1 else 2 })
         // the dropped player still appears in the standings, flagged
         assertTrue(t.standings().first { it.player.id == "p3" }.dropped)
     }
@@ -169,11 +169,38 @@ class EngineTest {
         assertEquals(0, s.points)
         assertEquals(0.33, s.matchWinPct, 1e-9)
         assertTrue(t.advance())
-        assertEquals(5, t.roundMatches(2).sumOf { if (it.isBye) 1 else 2 as Int })
+        assertEquals(5, t.roundMatches(2).sumOf { if (it.isBye) 1 else 2 })
         assertTrue(t.roundMatches(2).any { it.p1 == "late" || it.p2 == "late" })
         for (m in t.roundMatches(2)) if (!m.isBye) t.setResult(m, Result.P1_WIN)
         // viewed as of round 1 the late player's missed round is counted once, never more than the rounds played
         assertEquals(1, t.standings(1).first { it.player.id == "late" }.losses)
+    }
+
+    @Test fun latePlayerWindowClosesAt80PercentOrWithUnderTwoRoundsLeft() {
+        fun after(rounds: Int, total: Int): Boolean {
+            val t = tournament(8, listOf(StageConfig(StageType.SWISS, total)))
+            for (r in 1..rounds) {
+                for (m in t.roundMatches(r)) t.setResult(m, Result.P1_WIN)
+                if (r < rounds) t.advance()
+            }
+            return t.canAddPlayer()
+        }
+        assertTrue(after(1, 5)); assertTrue(after(3, 5))   // 60% played, 2 left
+        assertFalse(after(4, 5))                            // 80% played, 1 left
+        assertTrue(after(7, 10)); assertFalse(after(8, 10)) // 80% rule with 2 rounds left
+        assertTrue(after(2, 4)); assertFalse(after(3, 4))   // fewer than 2 rounds left
+    }
+
+    @Test fun latePlayersNotAllowedInLaterStages() {
+        val t = tournament(8, listOf(StageConfig(StageType.SINGLE_ELIM), StageConfig(StageType.SWISS, 6)))
+        assertFalse(t.canAddPlayer())
+        val s = tournament(8, listOf(StageConfig(StageType.SWISS, 2), StageConfig(StageType.SWISS, 6)))
+        for (m in s.roundMatches(1)) s.setResult(m, Result.P1_WIN)
+        s.advance()
+        for (m in s.roundMatches(2)) s.setResult(m, Result.P1_WIN)
+        s.advance() // second Swiss stage, round 3 pending
+        for (m in s.roundMatches(3)) s.setResult(m, Result.P1_WIN)
+        assertFalse(s.canAddPlayer())
     }
 
     @Test fun latePlayerNotAllowedOnceTheSwissStageIsOver() {
