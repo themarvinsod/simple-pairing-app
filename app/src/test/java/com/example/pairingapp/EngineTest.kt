@@ -158,6 +158,30 @@ class EngineTest {
         assertTrue(t.standings().first { it.player.id == "p3" }.dropped)
     }
 
+    @Test fun latePlayerStartsWithALossPerMissedRoundAndIsPaired() {
+        val t = tournament(4, listOf(StageConfig(StageType.SWISS, 3)))
+        assertFalse(t.addLatePlayer(Player("x", "X"))) // round 1 is not finished yet
+        for (m in t.roundMatches(1)) t.setResult(m, Result.P1_WIN)
+        assertTrue(t.addLatePlayer(Player("late", "Late")))
+        assertFalse(t.addLatePlayer(Player("late", "Late"))) // no duplicates
+        val s = t.standings().first { it.player.id == "late" }
+        assertEquals(1, s.losses)
+        assertEquals(0, s.points)
+        assertEquals(0.33, s.matchWinPct, 1e-9)
+        assertTrue(t.advance())
+        assertEquals(5, t.roundMatches(2).sumOf { if (it.isBye) 1 else 2 as Int })
+        assertTrue(t.roundMatches(2).any { it.p1 == "late" || it.p2 == "late" })
+        for (m in t.roundMatches(2)) if (!m.isBye) t.setResult(m, Result.P1_WIN)
+        // viewed as of round 1 the late player's missed round is counted once, never more than the rounds played
+        assertEquals(1, t.standings(1).first { it.player.id == "late" }.losses)
+    }
+
+    @Test fun latePlayerNotAllowedOnceTheSwissStageIsOver() {
+        val t = tournament(4, listOf(StageConfig(StageType.SWISS, 1)))
+        for (m in t.roundMatches(1)) t.setResult(m, Result.P1_WIN)
+        assertFalse(t.canAddPlayer())
+    }
+
     @Test fun doubleElimWithSingleEntrantFinishes() {
         val t = tournament(1, listOf(StageConfig(StageType.DOUBLE_ELIM)))
         assertTrue(t.advance())

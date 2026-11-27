@@ -79,6 +79,7 @@ class Store(context: Context) {
         })
         put("players", JSONArray().also { a -> t.players.forEach { a.put(JSONObject().put("id", it.id).put("name", it.name)) } })
         put("dropped", JSONArray(t.dropped.toList()))
+        put("late", JSONObject().also { o -> t.late.forEach { (k, v) -> o.put(k, v) } })
         put("decks", JSONObject().also { o -> t.decks.forEach { (k, v) -> o.put(k, v) } })
         put("matches", JSONArray().also { a ->
             t.matches.forEach {
@@ -97,6 +98,8 @@ class Store(context: Context) {
             (0 until a.length()).map { a.getJSONObject(it).let { p -> Player(p.getString("id"), p.getString("name")) } }
         }
         val dropped = o.getJSONArray("dropped").let { a -> (0 until a.length()).map { a.getString(it) }.toMutableSet() }
+        val late = mutableMapOf<String, Int>()
+        o.optJSONObject("late")?.let { l -> l.keys().forEach { late[it] = l.getInt(it) } }
         val decks = mutableMapOf<String, String>()
         o.getJSONObject("decks").let { d -> d.keys().forEach { decks[it] = d.getString(it) } }
         val matches = o.getJSONArray("matches").let { a ->
@@ -111,7 +114,7 @@ class Store(context: Context) {
             o.getString("id"), o.getString("name"),
             PointSystem(pt.getInt("win"), pt.getInt("draw"), pt.getInt("loss"), pt.getInt("doubleLoss"), pt.getInt("bye")),
             stages, players, o.getLong("created"), dropped, matches, decks, Status.valueOf(o.getString("status")),
-            roundMinutes = o.optInt("timer", 0), extraMinutes = o.optInt("extra", 0)
+            roundMinutes = o.optInt("timer", 0), extraMinutes = o.optInt("extra", 0), late = late
         )
     }
 }
